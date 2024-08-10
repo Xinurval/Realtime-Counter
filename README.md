@@ -1,0 +1,1 @@
+Two counters that update globally in realtime using React, Vite and Firestore Realtime Database. 
