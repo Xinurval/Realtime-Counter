@@ -31,11 +31,11 @@ function Counters(){
 
   // increment counter in database (first) 
   const incrementMyCount = () => {
-    set(myCountRef, myCount + 1);
+    set(myCountRef, (myCount + 1) % 100);
   };
 
   const incrementYourCount = () => {
-    set(yourCountRef, yourCount + 1);
+    set(yourCountRef, (yourCount + 1) % 100);
   };
 
   return(
