@@ -1,5 +1,6 @@
 import { initializeApp } from 'firebase/app';
-import { getDatabase } from 'firebase/database';
+import { getDatabase, ref, set, onDisconnect, remove } from 'firebase/database';
+import { getAuth } from 'firebase/auth';
 
 const firebaseConfig = {
   apiKey: "AIzaSyBWRy13lELKvIlVljH4jjc6jw0itr8YezA",
@@ -18,4 +19,24 @@ const app = initializeApp(firebaseConfig);
 // Get a reference to the database
 const database = getDatabase(app);
 
-export { database };
+// Get a reference to authentication service
+const auth = getAuth(app);
+
+// Function to update user presence
+export const updateUserPresence = async (userId) => {
+  const userPresenceRef = ref(database, `onlineUsers/${userId}`);
+  const userScoreRef = ref(database, `scores/${userId}`);
+
+  // Set user presence to true when connected
+  await set(userPresenceRef, true);
+
+  // Initialize user score to 0 if not already set
+  await set(userScoreRef, 0);
+
+  // remove user from onlineUsers collection and reset user score
+  onDisconnect(userPresenceRef).remove().then(() => {
+    set(userScoreRef, 0);
+  });
+};
+
+export { database, auth };

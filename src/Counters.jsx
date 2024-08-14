@@ -1,55 +1,155 @@
 import { useState, useEffect } from 'react';
-import { ref, set, onValue } from 'firebase/database';
-import { database } from './firebase';
+import { ref, set, onValue, remove } from 'firebase/database';
+import { database, auth, updateUserPresence } from './firebase';
+import { signInAnonymously } from 'firebase/auth';
 
-function Counters(){
-  // use state allows us to track data in a function
-  // first value is a variable for current state, second value is a function used to update the state 
-  const [myCount, setMyCount] = useState(0) 
-  const [yourCount, setYourCount] = useState(0)
+function Counters() {
+  // useState variables for tracking data in a function 
+  // first value is a variable for the current state, second value is a function used to update the state 
+  const [myScore, setMyScore] = useState(0);
+  const [opponentScore, setOpponentScore] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [isOnline, setIsOnline] = useState(false);
+  const [userId, setUserId] = useState(null); // Store the current user's ID
+  const [opponentId, setOpponentId] = useState(null); // Store the opponent's ID
+  const [myLastClick, setMyLastClick] = useState(false); // Track the current user's last click status
+  const [opponentLastClick, setOpponentLastClick] = useState(false); // Track the opponent's last click status
+  const [resetDone, setResetDone] = useState(false); // Track if reset of counters has been done
 
-  // Reference paths in the Firebase database
-  const myCountRef = ref(database, 'myCount');
-  const yourCountRef = ref(database, 'yourCount');
+  // Function to sign in anonymously
+  const signInUser = async () => {
+    try {
+      const userCredential = await signInAnonymously(auth);
+      const uid = userCredential.user.uid;
+      setUserId(uid); // Set the current user's ID
+      console.log('User signed in anonymously successfully. User ID:', uid);
+      await updateUserPresence(uid); // Update presence in Firebase
+      setIsOnline(true); // Mark the user as online
+    } catch (error) {
+      console.error('Failed to sign in anonymously:', error);
+    }
+  };
 
-  // increment counter here when values change in firestore
+  // Function to reset both scores when a new game starts
+  const resetScores = async () => {
+    if (userId && opponentId) {
+      const myScoreRef = ref(database, `scores/${userId}`);
+      const opponentScoreRef = ref(database, `scores/${opponentId}`);
+
+      await set(myScoreRef, 0); // Reset the current user's score to 0
+      await set(opponentScoreRef, 0); // Reset the opponent's score to 0
+    }
+  };
+
   // useEffect allows you to perform side effects in function components - these are operations that affect something outside the scope of the function
   useEffect(() => {
-    // Listen for changes in the 'myCount' value in firestore
-    // onValue fetches data from reference provided from firestore
-    onValue(myCountRef, (snapshot) => {
-      const value = snapshot.val();
-      setMyCount(value);
-    });
+    const init = async () => {
+      await signInUser(); // Sign in anonymously
 
-    // Listen for changes in the 'yourCount' value in firestore
-    onValue(yourCountRef, (snapshot) => {
-      const value = snapshot.val();
-      setYourCount(value);
-    });
-  }, []);
+      // Update the current user's score in firebase
+      if (userId) {
+        // Reference to the current user's score in Firebase
+        const myScoreRef = ref(database, `scores/${userId}`);
+        onValue(myScoreRef, (snapshot) => {
+          const value = snapshot.val();
+          setMyScore(value); 
+        });
 
-  // increment counter in database (first) 
-  const incrementMyCount = () => {
-    set(myCountRef, (myCount + 1) % 100);
+        // Reference to the current user's last click status in Firebase
+        const myLastClickRef = ref(database, `lastClick/${userId}`);
+        onValue(myLastClickRef, (snapshot) => {
+          const value = snapshot.val();
+          setMyLastClick(value || false); // Update the current user's last click status
+        });
+
+        // Listen for changes in the 'onlineUsers' to identify the opponent
+        onValue(ref(database, 'onlineUsers'), (snapshot) => {
+          const onlineUsersData = snapshot.val();
+          const otherUserId = Object.keys(onlineUsersData).find(id => id !== userId); // Identify the opponent's ID
+          setOpponentId(otherUserId);
+
+          if (otherUserId) {
+            // Reference to the opponent's score in Firebase
+            const opponentScoreRef = ref(database, `scores/${otherUserId}`);
+            onValue(opponentScoreRef, (snapshot) => {
+              const value = snapshot.val();
+              setOpponentScore(value); // Update the opponent's score
+            });
+
+            // Listen for the opponent's last click status
+            const opponentLastClickRef = ref(database, `lastClick/${otherUserId}`);
+            onValue(opponentLastClickRef, (snapshot) => {
+              const value = snapshot.val();
+              setOpponentLastClick(value || false); // Update the opponent's last click status
+            });
+
+            // Reset scores when a new game is detected
+            if (!resetDone) {
+              resetScores(); // Reset scores when a new opponent is found
+              setResetDone(true); // Set flag to indicate reset is done
+            }
+          }
+        });
+      }
+
+      setLoading(false); // Stop loading once initialized
+    };
+
+    init();
+
+    // Cleanup function to remove user presence and reset scores on component unmount
+    return () => {
+      if (auth.currentUser) {
+        const userId = auth.currentUser.uid;
+        remove(ref(database, `onlineUsers/${userId}`)); // Remove user presence from Firebase
+        resetScores(); // Reset scores when a user disconnects
+        setResetDone(false); // Reset the flag for the next connection
+      }
+    };
+  }, [userId]); // Depend on userId to handle user state changes
+
+  // Function to increment the current user's score and update last click status
+  const incrementMyScore = () => {
+    if (isOnline && userId) {
+      // Allow first click if both scores are 0, otherwise enforce turn-based logic
+      if ((myScore === 0 && opponentScore === 0) || opponentLastClick) {
+        const myScoreRef = ref(database, `scores/${userId}`);
+        const myLastClickRef = ref(database, `lastClick/${userId}`);
+
+        // Update score and set last click to true
+        set(myScoreRef, (myScore + 1) % 100);
+        set(myLastClickRef, true);
+
+        // Reset opponent's last click status
+        if (opponentId) {
+          const opponentLastClickRef = ref(database, `lastClick/${opponentId}`);
+          set(opponentLastClickRef, false);
+        }
+      }
+    }
   };
 
-  const incrementYourCount = () => {
-    set(yourCountRef, (yourCount + 1) % 100);
-  };
+  if (loading) return <div>Loading...</div>; // Display loading screen
 
-  return(
+  return (
     <div className="counters">
-      <button onClick={incrementMyCount}>
-        My count is {myCount}
-      </button>
-      <br></br>
-      <br></br>
-      <button onClick={incrementYourCount}>
-        Your count is {yourCount}
-      </button>
+      {opponentId ? (
+        <>
+          <button 
+            onClick={incrementMyScore} 
+            disabled={(myScore !== 0 || opponentScore !== 0) && !opponentLastClick} // Disable button unless it's the first click or it's the user's turn
+          >
+            Your Score: {myScore}
+          </button>
+          <br />
+          <br />
+          <div>Opponent's Score: {opponentScore}</div>
+        </>
+      ) : (
+        <div>Waiting for another user to join...</div>
+      )}
     </div>
-  )
+  );
 }
 
-export default Counters
+export default Counters;
