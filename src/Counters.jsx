@@ -32,12 +32,14 @@ function Counters() {
 
   // Function to reset both scores when a new game starts
   const resetScores = async () => {
-    if (userId && opponentId) {
+    if (userId) {
       const myScoreRef = ref(database, `scores/${userId}`);
-      const opponentScoreRef = ref(database, `scores/${opponentId}`);
-
-      await set(myScoreRef, 0); // Reset the current user's score to 0
-      await set(opponentScoreRef, 0); // Reset the opponent's score to 0
+      await set(myScoreRef, 0);
+  
+      if (opponentId) {
+        const opponentScoreRef = ref(database, `scores/${opponentId}`);
+        await set(opponentScoreRef, 0);
+      }
     }
   };
 
@@ -52,7 +54,7 @@ function Counters() {
         const myScoreRef = ref(database, `scores/${userId}`);
         onValue(myScoreRef, (snapshot) => {
           const value = snapshot.val();
-          setMyScore(value); 
+          setMyScore(value || 0);
         });
 
         // Reference to the current user's last click status in Firebase
@@ -73,7 +75,7 @@ function Counters() {
             const opponentScoreRef = ref(database, `scores/${otherUserId}`);
             onValue(opponentScoreRef, (snapshot) => {
               const value = snapshot.val();
-              setOpponentScore(value); // Update the opponent's score
+              setOpponentScore(value || 0); // Update the opponent's score
             });
 
             // Listen for the opponent's last click status
